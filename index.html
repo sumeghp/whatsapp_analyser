@@ -1,0 +1,853 @@
+<title>WhatsApp Chat Analyser</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+/* Layout: one column up to 1100px. Header with file picker, a summary strip, then panels in a two-column grid that stacks on phones. */
+:root {
+  --bg: #EEF1F5; --surface: #FFFFFF; --ink: #131A24; --muted: #5A6576; --line: #D9DFE8;
+  --accent: #3D52D5; --accent-ink: #FFFFFF; --cell: #E4E8EF; --warn-bg: #FFF1DE; --warn-ink: #8A4B00;
+  --s1: #3D52D5; --s2: #E0912A; --s3: #17977F; --s4: #D04F78; --s5: #8456D6; --s6: #5C7896; --s7: #8C9A22; --s8: #2A93CF;
+  --f-display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E131A; --surface: #161D27; --ink: #E6EBF2; --muted: #93A0B3; --line: #263040;
+    --accent: #8A9BFF; --accent-ink: #0E131A; --cell: #1F2835; --warn-bg: #3A2A12; --warn-ink: #F3C27A;
+    --s1: #8A9BFF; --s2: #F0AC4E; --s3: #3CC3A7; --s4: #EF7DA0; --s5: #B08CF5; --s6: #8FA8C4; --s7: #B9C94A; --s8: #5EB9EE;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E131A; --surface: #161D27; --ink: #E6EBF2; --muted: #93A0B3; --line: #263040;
+  --accent: #8A9BFF; --accent-ink: #0E131A; --cell: #1F2835; --warn-bg: #3A2A12; --warn-ink: #F3C27A;
+  --s1: #8A9BFF; --s2: #F0AC4E; --s3: #3CC3A7; --s4: #EF7DA0; --s5: #B08CF5; --s6: #8FA8C4; --s7: #B9C94A; --s8: #5EB9EE;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--f-body); }
+.wrap { max-width: 1100px; margin: 0 auto; padding-inline: 20px; padding-block: 32px 64px; display: grid; gap: 20px; }
+h1, h2 { font-family: var(--f-display); text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(1.8rem, 4vw, 2.5rem); font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+h2 { font-size: 1.15rem; font-weight: 600; letter-spacing: -0.01em; }
+p { margin: 0; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.label { font-family: var(--f-mono); font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+/* Header */
+.top { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-end; justify-content: space-between; }
+.intro { display: grid; gap: 8px; max-width: 34rem; min-width: 0; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; }
+.drop { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 16px; border: 1.5px dashed var(--line); border-radius: var(--r); background: var(--surface); cursor: pointer; transition: border-color .15s; }
+.drop:hover, .drop.over { border-color: var(--accent); }
+.drop:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.drop strong { display: block; font-weight: 600; }
+.drop span.small { font-size: 0.8rem; color: var(--muted); }
+.drop svg { flex: none; color: var(--accent); }
+button { font: inherit; cursor: pointer; }
+.btn { padding: 10px 16px; border-radius: var(--r); border: 1px solid var(--line); background: transparent; color: var(--ink); font-weight: 500; }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.source { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 0.9rem; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); font-family: var(--f-mono); font-size: 0.75rem; }
+/* Toolbar + export menu */
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
+.toolbar[hidden] { display: none; }
+.export { position: relative; }
+.export summary { list-style: none; display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; background: var(--surface); }
+.export summary::-webkit-details-marker { display: none; }
+.export summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.export.busy summary { pointer-events: none; opacity: 0.7; }
+.menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 10; width: 250px; display: grid; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: 0 10px 28px rgb(10 15 25 / 0.16); }
+.menu button { display: grid; gap: 1px; text-align: left; padding: 8px 10px; border: 0; border-radius: 6px; background: none; color: var(--ink); font-size: 0.9rem; }
+.menu button:hover, .menu button:focus-visible { background: var(--cell); outline: none; }
+.menu small { color: var(--muted); font-size: 0.75rem; }
+.menu .label { padding: 8px 10px 4px; }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; width: 100%; }
+@media (max-width: 560px) { .menu { right: auto; left: 0; } }
+.report-head { display: grid; gap: 4px; padding-block: 4px 6px; }
+.report-head[hidden] { display: none; }
+/* While building the PDF the page is laid out at a fixed desktop width. */
+body.exporting .wrap { width: 1060px; max-width: none; }
+body.exporting .seg, body.exporting #wordUser { display: none; }
+
+#results { display: grid; gap: 20px; }
+#results[hidden] { display: none; }
+
+/* Empty state */
+.start { display: grid; justify-items: center; gap: 10px; text-align: center; padding: clamp(36px, 8vw, 72px) 20px; border: 2px dashed var(--line); border-radius: var(--r); background: var(--surface); cursor: pointer; transition: border-color .15s, background-color .15s; }
+.start:hover, .start.over { border-color: var(--accent); }
+.start.over { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.start svg { color: var(--accent); }
+.start-title { font-family: var(--f-display); font-size: clamp(1.15rem, 2.6vw, 1.45rem); font-weight: 600; text-wrap: balance; }
+.how { display: grid; gap: 10px; margin-top: 14px; text-align: left; font-size: 0.9rem; max-width: 34rem; }
+.how > span { display: grid; gap: 2px; padding: 10px 14px; border-radius: 8px; background: var(--cell); }
+.error { padding: 12px 16px; border-radius: var(--r); background: var(--warn-bg); color: var(--warn-ink); }
+
+/* Summary strip */
+.stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.stat { background: var(--surface); padding: 14px 16px; display: grid; gap: 2px; align-content: start; min-width: 0; }
+.stat .v { font-family: var(--f-display); font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.stat .sub { font-size: 0.8rem; color: var(--muted); }
+@media (max-width: 900px) { .stats { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 520px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+
+/* Panels */
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.span2 { grid-column: 1 / -1; }
+@media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 18px 20px 20px; display: grid; gap: 14px; align-content: start; min-width: 0; }
+.panel-head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; }
+.panel-head p { font-size: 0.85rem; color: var(--muted); }
+select { font: inherit; font-size: 0.85rem; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); max-width: 100%; }
+
+/* Participants */
+.people { display: grid; }
+.person, .people-head { display: grid; grid-template-columns: minmax(110px, 1.2fr) minmax(80px, 2fr) repeat(5, minmax(56px, 72px)); gap: 14px; align-items: center; padding: 9px 0; }
+.person { border-top: 1px solid var(--line); }
+.people-head { padding-top: 0; }
+.people-head span:nth-child(n+3), .nums span { text-align: right; }
+.who { display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 500; }
+.who b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.dot { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.bar { height: 10px; border-radius: 5px; background: var(--cell); overflow: hidden; }
+.bar i { display: block; height: 100%; border-radius: 5px; transition: width .4s ease; }
+.nums { display: contents; }
+.nums span { font-family: var(--f-mono); font-variant-numeric: tabular-nums; font-size: 0.9rem; }
+.more { padding-top: 10px; border-top: 1px solid var(--line); font-size: 0.85rem; color: var(--muted); }
+@media (max-width: 700px) {
+  .people-head { display: none; }
+  .person { grid-template-columns: 1fr; gap: 8px; }
+  .nums { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .nums span { text-align: left; display: grid; font-size: 0.85rem; }
+  .nums span::before { content: attr(data-label); font-size: 0.62rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+}
+
+/* Activity chart */
+.chart { position: relative; min-width: 0; }
+.chart svg { display: block; width: 100%; overflow: visible; }
+.chart .grid-line { stroke: var(--line); stroke-width: 1; }
+.chart .axis { fill: var(--muted); font-family: var(--f-mono); font-size: 11px; }
+.chart .area { fill: var(--accent); fill-opacity: 0.16; }
+.chart .line { fill: none; stroke: var(--accent); stroke-width: 1.75; stroke-linejoin: round; }
+.chart .peak { fill: var(--accent); }
+.chart .peak-label { fill: var(--ink); font-family: var(--f-mono); font-size: 11px; }
+.chart .cursor { stroke: var(--muted); stroke-dasharray: 3 3; }
+.chart .cursor-dot { fill: var(--surface); stroke: var(--accent); stroke-width: 2; }
+.tip { position: absolute; top: 0; pointer-events: none; padding: 6px 10px; border-radius: 8px; background: var(--ink); color: var(--bg); font-size: 0.8rem; white-space: nowrap; transform: translateX(-50%); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: transparent; color: var(--muted); padding: 4px 10px; font-size: 0.8rem; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+
+/* Heatmap */
+.heat-scroll { overflow-x: auto; }
+.heat { display: grid; grid-template-columns: 34px repeat(24, minmax(14px, 1fr)); gap: 3px; min-width: 440px; }
+.heat .cell { aspect-ratio: 1 / 1; border-radius: 3px; max-width: 100%; }
+.heat .rl, .heat .cl { font-family: var(--f-mono); font-size: 0.66rem; color: var(--muted); }
+.heat .rl { align-self: center; }
+.heat .cl { text-align: left; white-space: nowrap; }
+.legend { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--muted); }
+.legend i { width: 14px; height: 14px; border-radius: 3px; display: block; }
+
+/* Words + emoji */
+.rank { display: grid; gap: 7px; }
+.rank-row { display: grid; grid-template-columns: minmax(70px, 9rem) 1fr 3.5rem; gap: 12px; align-items: center; }
+.rank-row .w { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank-row .c { text-align: right; font-family: var(--f-mono); font-variant-numeric: tabular-nums; font-size: 0.85rem; color: var(--muted); }
+.emoji-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 8px; }
+.emoji { display: grid; justify-items: center; gap: 2px; padding: 10px 4px; border-radius: 8px; background: var(--cell); }
+.emoji .e { font-size: 1.7rem; line-height: 1.2; }
+.emoji .c { font-family: var(--f-mono); font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.empty { color: var(--muted); font-size: 0.9rem; }
+
+.foot { font-size: 0.8rem; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .bar i, .drop { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="intro">
+      <h1>WhatsApp Chat Analyser</h1>
+      <p class="muted">Charts from an exported chat. The file is read inside this browser tab and never uploaded anywhere.</p>
+    </div>
+    <div class="controls">
+      <label class="drop" id="drop">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+        <span><strong>Choose an export</strong><span class="small">.txt or .zip · or drop it here</span></span>
+        <input type="file" id="file" accept=".txt,.zip,text/plain,application/zip">
+      </label>
+    </div>
+  </header>
+
+  <div class="toolbar" id="toolbar" hidden>
+    <div class="source" id="source"></div>
+    <details class="export" id="export">
+      <summary class="btn" id="exportBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12"/><path d="m7 11 5 5 5-5"/><path d="M4 20h16"/></svg>
+        <span id="exportLabel">Export</span>
+      </summary>
+      <div class="menu" role="menu">
+        <button type="button" role="menuitem" data-x="pdf">PDF report<small>All charts and tables, A4 pages</small></button>
+        <hr>
+        <span class="label">CSV for Excel or Sheets</span>
+        <button type="button" role="menuitem" data-x="zip">All tables (.zip)<small>Every CSV below in one download</small></button>
+        <button type="button" role="menuitem" data-x="summary">Summary</button>
+        <button type="button" role="menuitem" data-x="participants">Participants</button>
+        <button type="button" role="menuitem" data-x="daily">Daily activity</button>
+        <button type="button" role="menuitem" data-x="heatmap">Day × hour heatmap</button>
+        <button type="button" role="menuitem" data-x="words">Top words<small>Everyone and each person</small></button>
+        <button type="button" role="menuitem" data-x="emoji">Top emoji</button>
+        <button type="button" role="menuitem" data-x="messages">All messages<small>Date, time, author, type, text</small></button>
+      </div>
+    </details>
+  </div>
+
+  <header class="report-head" id="reportHead" hidden>
+    <h1>WhatsApp Chat Analysis</h1>
+    <p id="reportChat"></p>
+    <p class="muted" id="reportMeta"></p>
+  </header>
+  <div class="error" id="error" role="alert" hidden></div>
+
+  <label class="start" id="start" for="file">
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+    <span class="start-title">Drop your exported chat here, or click to choose it</span>
+    <span class="muted">Accepts the .txt file or the .zip WhatsApp creates</span>
+    <span class="how">
+      <span><span class="label">Android</span>Open the chat → ⋮ → More → Export chat → Without media</span>
+      <span><span class="label">iPhone</span>Open the chat → tap the name at the top → Export Chat → Without Media</span>
+    </span>
+  </label>
+
+  <div id="results" hidden>
+  <section class="stats" id="stats" aria-label="Summary"></section>
+
+  <div class="grid">
+    <section class="panel span2">
+      <div class="panel-head">
+        <h2>Participants</h2>
+        <p>Sorted by messages sent. A start is the first message after 6 quiet hours.</p>
+      </div>
+      <div class="people" id="people"></div>
+    </section>
+
+    <section class="panel span2">
+      <div class="panel-head">
+        <h2>Activity over time</h2>
+        <div class="seg" role="group" aria-label="Group by">
+          <button type="button" id="byDay" aria-pressed="true">Daily</button>
+          <button type="button" id="byWeek" aria-pressed="false">Weekly</button>
+        </div>
+      </div>
+      <div class="chart" id="activity"></div>
+    </section>
+
+    <section class="panel span2">
+      <div class="panel-head">
+        <h2>When the chat is busy</h2>
+        <p id="heatNote"></p>
+      </div>
+      <div class="heat-scroll"><div class="heat" id="heat"></div></div>
+      <div class="legend" id="heatLegend"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Top words</h2>
+        <select id="wordUser" aria-label="Whose words"></select>
+      </div>
+      <div class="rank" id="words"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Top emoji</h2>
+        <p id="emojiNote"></p>
+      </div>
+      <div class="emoji-grid" id="emoji"></div>
+    </section>
+  </div>
+  </div>
+
+  <p class="foot">Android and iPhone exports in 12- or 24-hour time both work. Common words like "the" and "hai" are left out of Top words.</p>
+</div>
+
+<script>
+"use strict";
+
+/* ---------- Parsing ---------- */
+
+const RE_ANDROID = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4}),?\s+(\d{1,2})[:.](\d{2})(?:[:.]\d{2})?\s*([ap]\.?\s?m\.?)?\s+-\s+(.*)$/i;
+const RE_IOS = /^\[(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4}),?\s+(\d{1,2})[:.](\d{2})(?:[:.]\d{2})?\s*([ap]\.?\s?m\.?)?\]\s*(.*)$/i;
+const RE_MEDIA = /^<?\s*(media omitted|(image|video|audio|sticker|gif|document|contact card) omitted|attached:.*|.*\(file attached\))\s*>?$/i;
+const RE_DELETED = /^(this message was deleted|you deleted this message)\.?$/i;
+const RE_SYSTEM_AUTHOR = /\b(changed|added|removed|left|joined|created|pinned|turned|deleted|started|ended)\b/i;
+const RE_SYSTEM_TEXT = /end-to-end encrypted|security code (changed|with)|disappearing messages/i;
+
+function cleanLine(s) {
+  return s.replace(/[‎‏﻿‪-‮⁦-⁩]/g, "").replace(/[  ]/g, " ");
+}
+
+function parseChat(raw) {
+  const rows = [];
+  for (const line0 of raw.split(/\r?\n/)) {
+    const line = cleanLine(line0);
+    const m = RE_ANDROID.exec(line) || RE_IOS.exec(line);
+    if (m) {
+      rows.push({ a: +m[1], b: +m[2], y: +m[3], h: +m[4], mi: +m[5], ap: m[6] || "", rest: m[7] });
+    } else if (rows.length && line.trim() !== "") {
+      rows[rows.length - 1].rest += "\n" + line;
+    }
+  }
+  // Day-first unless the data proves otherwise (a first field over 12 means DD/MM; a second over 12 means MM/DD).
+  let dayFirst = true;
+  if (!rows.some(r => r.a > 12) && rows.some(r => r.b > 12)) dayFirst = false;
+
+  const messages = [];
+  for (const r of rows) {
+    let h = r.h;
+    if (r.ap) {
+      const pm = /p/i.test(r.ap);
+      if (pm && h < 12) h += 12;
+      if (!pm && h === 12) h = 0;
+    }
+    const day = dayFirst ? r.a : r.b, month = dayFirst ? r.b : r.a;
+    const year = r.y < 100 ? 2000 + r.y : r.y;
+    const t = new Date(year, month - 1, day, h, r.mi);
+    if (isNaN(t)) continue;
+
+    const idx = r.rest.indexOf(": ");
+    if (idx <= 0 || idx > 60) continue;              // system line without an author
+    const author = r.rest.slice(0, idx).trim();
+    let text = r.rest.slice(idx + 2).trim();
+    if (RE_SYSTEM_AUTHOR.test(author) || RE_SYSTEM_TEXT.test(text)) continue;
+    text = text.replace(/\s*<this message was edited>\s*$/i, "");
+    const kind = RE_MEDIA.test(text) ? "media" : RE_DELETED.test(text) ? "deleted" : "text";
+    messages.push({ t, author, text, kind });
+  }
+  messages.sort((x, y) => x.t - y.t);
+  return messages;
+}
+
+/* ---------- Analysis ---------- */
+
+const STOP = new Set(("the and for you that this with have are was but not what all can will just get got its it's i'm i'll i've don't can't didn't doesn't isn't won't "
+  + "yes yeah yea yup okay okk haha hahaha hahahaha lol lmao also too then there they them their from your you're our out now how why who when where one let see "
+  + "did does had has him her she his any some more very much well like come coming going gone know think want need make take would could should about into "
+  + "only than been being were which because really still here hmm hmmm sure even back over thing things time today tomorrow tonight good nice cool right "
+  + "toh hai hain nahi nhi kya bhi aur haan han mein main tha thi kar karo karna raha rahe rahi hoga abhi bas koi kuch sab yaar yar par wo woh yeh jo tum aap "
+  + "mera meri tera teri apna hum gaya gayi diya liya wala wali bol bolo acha accha achha theek thik matlab kyu kyun kaise kab kaha phir fir isko usko karte kare").split(" "));
+
+const RE_EMOJI = /\p{Extended_Pictographic}(?:️|\p{Emoji_Modifier}|‍\p{Extended_Pictographic}️?)*/gu;
+const DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const dayKey = d => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+const startOfDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const hourLabel = h => (h % 12 || 12) + (h < 12 ? " AM" : " PM");
+
+function analyse(messages) {
+  const people = new Map();
+  const words = new Map();               // "" = everyone, else author
+  const emoji = new Map();
+  const daily = new Map();
+  const heat = Array.from({ length: 7 }, () => new Array(24).fill(0));
+  let prev = null;
+
+  const P = name => {
+    if (!people.has(name)) people.set(name, { name, msgs: 0, words: 0, media: 0, deleted: 0, starts: 0 });
+    return people.get(name);
+  };
+  const bump = (map, k, n = 1) => map.set(k, (map.get(k) || 0) + n);
+
+  for (const m of messages) {
+    const p = P(m.author);
+    p.msgs++;
+    if (!prev || m.t - prev.t > 6 * 3600e3) p.starts++;
+    prev = m;
+    bump(daily, dayKey(m.t));
+    heat[(m.t.getDay() + 6) % 7][m.t.getHours()]++;
+
+    if (m.kind === "media") { p.media++; continue; }
+    if (m.kind === "deleted") { p.deleted++; continue; }
+
+    const text = m.text.replace(/https?:\/\/\S+/g, " ");
+    p.words += text.split(/\s+/).filter(Boolean).length;
+    for (const e of text.match(RE_EMOJI) || []) bump(emoji, e);
+
+    if (!words.has(m.author)) words.set(m.author, new Map());
+    for (let w of text.toLowerCase().split(/[^\p{L}\p{N}'’]+/u)) {
+      w = w.replace(/^['’]+|['’]+$/g, "").replace(/’/g, "'");
+      if ([...w].length < 3 || /^\d+$/.test(w) || STOP.has(w)) continue;
+      bump(words.get(m.author), w);
+    }
+  }
+
+  const all = new Map();
+  for (const map of words.values()) for (const [w, c] of map) bump(all, w, c);
+  words.set("", all);
+
+  // Daily series with empty days filled in.
+  const series = [];
+  if (messages.length) {
+    const first = startOfDay(messages[0].t), last = startOfDay(messages[messages.length - 1].t);
+    for (let d = new Date(first); d <= last; d.setDate(d.getDate() + 1)) {
+      series.push({ d: new Date(d), v: daily.get(dayKey(d)) || 0 });
+    }
+  }
+
+  let streak = 0, best = 0, bestEnd = null;
+  for (const s of series) { streak = s.v ? streak + 1 : 0; if (streak > best) { best = streak; bestEnd = s.d; } }
+
+  return {
+    messages, series, heat, emoji, words,
+    people: [...people.values()].sort((a, b) => b.msgs - a.msgs),
+    streak: best, streakEnd: bestEnd,
+  };
+}
+
+/* ---------- Rendering ---------- */
+
+const $ = s => document.querySelector(s);
+const fmt = n => n.toLocaleString("en-IN");
+const fmtDate = (d, opts = { day: "numeric", month: "short", year: "numeric" }) => d.toLocaleDateString("en-GB", opts);
+const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const color = i => `var(--s${(i % 8) + 1})`;
+
+let A = null;
+let grouping = "day";
+
+function chatTitle(fileName) {
+  const base = fileName.split(" → ").pop().replace(/\.(txt|zip)$/i, "");
+  return base.replace(/^whatsapp chat (with|-)\s*/i, "").trim() || base;
+}
+
+function render(data, fileName) {
+  A = data;
+  A.fileName = fileName;
+  A.title = chatTitle(fileName);
+  A.slug = A.title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "") || "whatsapp-chat";
+  $("#source").innerHTML = `<span class="chip">${esc(fileName)}</span><span class="muted">${fmt(data.messages.length)} messages read</span>`;
+  $("#toolbar").hidden = false;
+  $("#start").hidden = true;
+  $("#results").hidden = false;
+  renderStats(); renderPeople(); renderActivity(); renderHeat(); renderWordSelect(); renderWords(); renderEmoji();
+}
+
+function renderStats() {
+  const { messages, series, people, heat } = A;
+  const total = messages.length;
+  const peakDay = series.reduce((a, b) => (b.v > a.v ? b : a), series[0]);
+  const hours = new Array(24).fill(0);
+  heat.forEach(row => row.forEach((v, h) => (hours[h] += v)));
+  const peakHour = hours.indexOf(Math.max(...hours));
+  const active = series.filter(s => s.v).length;
+  const tiles = [
+    ["Messages", fmt(total), `${fmt(Math.round(total / Math.max(1, active)))} per active day`],
+    ["Participants", fmt(people.length), people.length ? `Most active: ${esc(people[0].name.split(" ")[0])}` : ""],
+    ["Days covered", fmt(series.length), `${fmtDate(series[0].d)} – ${fmtDate(series[series.length - 1].d)}`],
+    ["Busiest day", fmt(peakDay.v), fmtDate(peakDay.d, { weekday: "short", day: "numeric", month: "short", year: "numeric" })],
+    ["Peak hour", hourLabel(peakHour), `${fmt(hours[peakHour])} messages in that hour`],
+    ["Longest streak", `${A.streak} ${A.streak === 1 ? "day" : "days"}`, A.streakEnd ? `Ended ${fmtDate(A.streakEnd)}` : ""],
+  ];
+  $("#stats").innerHTML = tiles.map(([l, v, s]) => `<div class="stat"><span class="label">${l}</span><span class="v">${v}</span><span class="sub">${s}</span></div>`).join("");
+}
+
+function renderPeople() {
+  const list = A.people;
+  const max = Math.max(1, ...list.map(p => p.msgs));
+  const shown = list.slice(0, 15);
+  const head = `<div class="people-head label"><span>Name</span><span>Messages</span><span>Msgs</span><span>Words</span><span>Words/msg</span><span>Media</span><span>Starts</span></div>`;
+  const rows = shown.map((p, i) => {
+    const textMsgs = Math.max(1, p.msgs - p.media - p.deleted);
+    return `<div class="person">
+      <div class="who"><span class="dot" style="background:${color(i)}"></span><b title="${esc(p.name)}">${esc(p.name)}</b></div>
+      <div class="bar" role="img" aria-label="${fmt(p.msgs)} messages"><i style="width:${(p.msgs / max) * 100}%;background:${color(i)}"></i></div>
+      <div class="nums">
+        <span data-label="Msgs">${fmt(p.msgs)}</span>
+        <span data-label="Words">${fmt(p.words)}</span>
+        <span data-label="Per msg">${(p.words / textMsgs).toFixed(1)}</span>
+        <span data-label="Media">${fmt(p.media)}</span>
+        <span data-label="Starts">${fmt(p.starts)}</span>
+      </div>
+    </div>`;
+  }).join("");
+  const more = list.length > shown.length ? `<div class="more">${list.length - shown.length} more people sent ${fmt(list.slice(15).reduce((s, p) => s + p.msgs, 0))} messages between them.</div>` : "";
+  $("#people").innerHTML = head + rows + more;
+}
+
+function bucketed() {
+  if (grouping === "day") return A.series.map(s => ({ d: s.d, v: s.v }));
+  const out = [];
+  for (const s of A.series) {
+    const monday = new Date(s.d); monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+    const last = out[out.length - 1];
+    if (last && +last.d === +monday) last.v += s.v; else out.push({ d: monday, v: s.v });
+  }
+  return out;
+}
+
+function niceStep(raw) {
+  const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+  const n = raw / pow;
+  return Math.max(1, (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * pow);
+}
+
+function renderActivity() {
+  const el = $("#activity");
+  const pts = bucketed();
+  const W = Math.max(280, el.clientWidth), H = W < 520 ? 190 : 240;
+  const pad = { l: 38, r: 14, t: 22, b: 26 };
+  const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
+  const max = Math.max(1, ...pts.map(p => p.v));
+  const step = niceStep(max / 4), top = Math.ceil(max / step) * step;
+  const x = i => pad.l + (pts.length < 2 ? iw / 2 : (i * iw) / (pts.length - 1));
+  const y = v => pad.t + ih * (1 - v / top);
+
+  let g = "";
+  for (let v = 0; v <= top; v += step) {
+    g += `<line class="grid-line" x1="${pad.l}" x2="${W - pad.r}" y1="${y(v)}" y2="${y(v)}"/><text class="axis" x="${pad.l - 8}" y="${y(v) + 4}" text-anchor="end">${fmt(v)}</text>`;
+  }
+  // Month labels, skipping any that would crowd the previous one.
+  let lastX = -Infinity, prevMonth = -1;
+  pts.forEach((p, i) => {
+    const mo = p.d.getMonth();
+    if (mo !== prevMonth) {
+      prevMonth = mo;
+      const xi = x(i);
+      if (xi - lastX > 56 && xi < W - pad.r - 20) {
+        g += `<text class="axis" x="${xi}" y="${H - 6}" text-anchor="${i === 0 ? "start" : "middle"}">${fmtDate(p.d, { month: "short", year: "2-digit" })}</text>`;
+        lastX = xi;
+      }
+    }
+  });
+  const line = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
+  const area = `${line}L${x(pts.length - 1).toFixed(1)},${y(0)}L${x(0).toFixed(1)},${y(0)}Z`;
+  const pi = pts.reduce((bi, p, i) => (p.v > pts[bi].v ? i : bi), 0);
+  const px = x(pi);
+  const anchor = px > W - 120 ? "end" : px < pad.l + 60 ? "start" : "middle";
+  const peak = `<circle class="peak" cx="${px}" cy="${y(pts[pi].v)}" r="3.5"/><text class="peak-label" x="${px}" y="${y(pts[pi].v) - 9}" text-anchor="${anchor}">${fmt(pts[pi].v)} · ${fmtDate(pts[pi].d, { day: "numeric", month: "short" })}</text>`;
+
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Messages per ${grouping}">
+      ${g}<path class="area" d="${area}"/><path class="line" d="${line}"/>${peak}
+      <line class="cursor" id="cur" y1="${pad.t}" y2="${y(0)}" visibility="hidden"/>
+      <circle class="cursor-dot" id="curDot" r="4" visibility="hidden"/>
+      <rect x="${pad.l}" y="0" width="${iw}" height="${H}" fill="transparent" id="hit"/>
+    </svg><div class="tip" id="tip" hidden></div>`;
+
+  const hit = el.querySelector("#hit"), cur = el.querySelector("#cur"), dot = el.querySelector("#curDot"), tip = el.querySelector("#tip");
+  const move = ev => {
+    const r = el.getBoundingClientRect();
+    const mx = (ev.touches ? ev.touches[0].clientX : ev.clientX) - r.left;
+    const i = Math.max(0, Math.min(pts.length - 1, Math.round(((mx - pad.l) / iw) * (pts.length - 1))));
+    const p = pts[i], cx = x(i);
+    cur.setAttribute("x1", cx); cur.setAttribute("x2", cx); cur.setAttribute("visibility", "visible");
+    dot.setAttribute("cx", cx); dot.setAttribute("cy", y(p.v)); dot.setAttribute("visibility", "visible");
+    const label = grouping === "day" ? fmtDate(p.d, { weekday: "short", day: "numeric", month: "short", year: "numeric" }) : "Week of " + fmtDate(p.d);
+    tip.textContent = `${label} · ${fmt(p.v)} ${p.v === 1 ? "message" : "messages"}`;
+    tip.hidden = false;
+    const tw = tip.offsetWidth;
+    tip.style.left = Math.min(W - tw / 2, Math.max(tw / 2, cx)) + "px";
+    tip.style.top = "-30px";
+  };
+  const leave = () => { cur.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); tip.hidden = true; };
+  hit.addEventListener("mousemove", move); hit.addEventListener("touchmove", move, { passive: true });
+  hit.addEventListener("mouseleave", leave); hit.addEventListener("touchend", leave);
+}
+
+// Mix two theme colours in JS (not CSS color-mix) so the PDF renderer can read the result.
+function token(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function mixHex(a, b, pct) {
+  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16), t = pct / 100;
+  const ch = s => Math.round(((pa >> s) & 255) * t + ((pb >> s) & 255) * (1 - t));
+  return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`;
+}
+
+function renderHeat() {
+  const { heat } = A;
+  const accent = token("--accent"), cell = token("--cell");
+  const shade = p => mixHex(accent, cell, p);
+  $("#heatLegend").innerHTML = `<span>Fewer</span>${[0, 35, 70, 100].map(p => `<i style="background:${shade(p)}"></i>`).join("")}<span>More messages</span>`;
+  const max = Math.max(1, ...heat.flat());
+  let h = `<span></span>`;
+  for (let c = 0; c < 24; c++) h += `<span class="cl">${c % 3 === 0 ? hourLabel(c).replace(" ", "") : ""}</span>`;
+  heat.forEach((row, d) => {
+    h += `<span class="rl">${DOW[d]}</span>`;
+    row.forEach((v, c) => {
+      const p = v ? Math.round(15 + (v / max) * 85) : 0;
+      h += `<span class="cell" title="${DOW[d]} ${hourLabel(c)} · ${fmt(v)} messages" style="background:${shade(p)}"></span>`;
+    });
+  });
+  $("#heat").innerHTML = h;
+  let bd = 0, bh = 0;
+  heat.forEach((row, d) => row.forEach((v, c) => { if (v > heat[bd][bh]) { bd = d; bh = c; } }));
+  const dayNames = ["Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays"];
+  $("#heatNote").textContent = `Busiest slot: ${dayNames[bd]} at ${hourLabel(bh)}`;
+}
+
+function renderWordSelect() {
+  const sel = $("#wordUser");
+  sel.innerHTML = `<option value="">Everyone</option>` + A.people.map(p => `<option value="${esc(p.name)}">${esc(p.name)}</option>`).join("");
+}
+
+function renderWords() {
+  const who = $("#wordUser").value;
+  const map = A.words.get(who) || new Map();
+  const top = [...map].sort((a, b) => b[1] - a[1]).slice(0, 12);
+  if (!top.length) { $("#words").innerHTML = `<p class="empty">No words to show for this person.</p>`; return; }
+  const max = top[0][1];
+  const idx = who ? A.people.findIndex(p => p.name === who) : -1;
+  const fill = idx >= 0 ? color(idx) : "var(--accent)";
+  $("#words").innerHTML = top.map(([w, c]) => `<div class="rank-row"><span class="w">${esc(w)}</span><span class="bar"><i style="width:${(c / max) * 100}%;background:${fill}"></i></span><span class="c">${fmt(c)}</span></div>`).join("");
+}
+
+function renderEmoji() {
+  const top = [...A.emoji].sort((a, b) => b[1] - a[1]).slice(0, 12);
+  const total = [...A.emoji.values()].reduce((s, v) => s + v, 0);
+  $("#emojiNote").textContent = total ? `${fmt(total)} used in total` : "";
+  $("#emoji").innerHTML = top.length
+    ? top.map(([e, c]) => `<div class="emoji"><span class="e">${e}</span><span class="c">${fmt(c)}</span></div>`).join("")
+    : `<p class="empty">No emoji in this chat.</p>`;
+}
+
+/* ---------- Input ---------- */
+
+function showError(msg) { const e = $("#error"); e.textContent = msg; e.hidden = !msg; }
+
+async function readFile(file) {
+  showError("");
+  try {
+    let text, name = file.name;
+    if (/\.zip$/i.test(file.name)) {
+      if (!window.JSZip) throw new Error("The zip reader didn't load. Unzip the export and choose the .txt file inside instead.");
+      const zip = await JSZip.loadAsync(file);
+      const entry = Object.values(zip.files).find(f => !f.dir && /\.txt$/i.test(f.name));
+      if (!entry) throw new Error("That zip has no chat text file in it. Export the chat again from WhatsApp and choose the .zip or the .txt it contains.");
+      text = await entry.async("string");
+      name = `${file.name} → ${entry.name}`;
+    } else {
+      text = await file.text();
+    }
+    const msgs = parseChat(text);
+    if (!msgs.length) throw new Error(`No messages found in ${file.name}. Make sure it's a chat exported from WhatsApp (open the chat, then More → Export chat), not a copied conversation.`);
+    render(analyse(msgs), name);
+  } catch (err) {
+    showError(err.message || String(err));
+  }
+}
+
+$("#file").addEventListener("change", e => { if (e.target.files[0]) readFile(e.target.files[0]); e.target.value = ""; });
+const dropTargets = [$("#drop"), $("#start")];
+["dragenter", "dragover"].forEach(t => document.addEventListener(t, e => { e.preventDefault(); dropTargets.forEach(d => d.classList.add("over")); }));
+["dragleave", "drop"].forEach(t => document.addEventListener(t, e => { e.preventDefault(); if (t === "drop" || !e.relatedTarget) dropTargets.forEach(d => d.classList.remove("over")); }));
+document.addEventListener("drop", e => { const f = e.dataTransfer && e.dataTransfer.files[0]; if (f) readFile(f); });
+$("#wordUser").addEventListener("change", renderWords);
+const setGrouping = g => { grouping = g; $("#byDay").setAttribute("aria-pressed", g === "day"); $("#byWeek").setAttribute("aria-pressed", g === "week"); renderActivity(); };
+$("#byDay").addEventListener("click", () => setGrouping("day"));
+$("#byWeek").addEventListener("click", () => setGrouping("week"));
+let rt; new ResizeObserver(() => { clearTimeout(rt); rt = setTimeout(() => A && renderActivity(), 80); }).observe($("#activity"));
+// Heatmap colours are computed in JS, so redraw them when the theme changes.
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => A && renderHeat());
+new MutationObserver(() => A && renderHeat()).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+/* ---------- Export: CSV ---------- */
+
+const pad2 = n => String(n).padStart(2, "0");
+const isoTime = d => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+function csvCell(v) {
+  let s = v == null ? "" : String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;   // stop spreadsheets treating chat text as a formula
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+// The byte-order mark makes Excel read the file as UTF-8, so emoji and Hindi text show correctly.
+const toCsv = rows => "﻿" + rows.map(r => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
+
+function summaryStats() {
+  const { messages, series, people, heat } = A;
+  const hours = new Array(24).fill(0);
+  heat.forEach(row => row.forEach((v, h) => (hours[h] += v)));
+  const peakHour = hours.indexOf(Math.max(...hours));
+  const peakDay = series.reduce((a, b) => (b.v > a.v ? b : a), series[0]);
+  const active = series.filter(s => s.v).length;
+  return {
+    total: messages.length, people: people.length, first: messages[0].t, last: messages[messages.length - 1].t,
+    days: series.length, active, perActive: messages.length / Math.max(1, active), peakDay, peakHour, peakHourCount: hours[peakHour],
+    media: people.reduce((s, p) => s + p.media, 0), deleted: people.reduce((s, p) => s + p.deleted, 0),
+    words: people.reduce((s, p) => s + p.words, 0), emoji: [...A.emoji.values()].reduce((s, v) => s + v, 0),
+  };
+}
+
+const TABLES = {
+  summary: () => {
+    const s = summaryStats();
+    return [["Metric", "Value"], ["Chat", A.title], ["Messages", s.total], ["Participants", s.people],
+      ["First message", `${dayKey(s.first)} ${isoTime(s.first)}`], ["Last message", `${dayKey(s.last)} ${isoTime(s.last)}`],
+      ["Days covered", s.days], ["Active days", s.active], ["Average messages per active day", s.perActive.toFixed(1)],
+      ["Busiest day", dayKey(s.peakDay.d)], ["Messages on busiest day", s.peakDay.v],
+      ["Peak hour", `${pad2(s.peakHour)}:00-${pad2((s.peakHour + 1) % 24)}:00`], ["Messages in peak hour", s.peakHourCount],
+      ["Longest streak (days)", A.streak], ["Longest streak ended", A.streakEnd ? dayKey(A.streakEnd) : ""],
+      ["Words", s.words], ["Media messages", s.media], ["Deleted messages", s.deleted], ["Emoji used", s.emoji]];
+  },
+  participants: () => {
+    const total = A.messages.length;
+    return [["Name", "Messages", "Share of messages (%)", "Words", "Words per message", "Media", "Deleted", "Conversation starts"],
+      ...A.people.map(p => [p.name, p.msgs, ((p.msgs / total) * 100).toFixed(1), p.words,
+        (p.words / Math.max(1, p.msgs - p.media - p.deleted)).toFixed(1), p.media, p.deleted, p.starts])];
+  },
+  daily: () => [["Date", "Weekday", "Messages"], ...A.series.map(s => [dayKey(s.d), WEEKDAYS[(s.d.getDay() + 6) % 7], s.v])],
+  heatmap: () => [["Day", ...Array.from({ length: 24 }, (_, h) => `${pad2(h)}:00`), "Total"],
+    ...A.heat.map((row, d) => [WEEKDAYS[d], ...row, row.reduce((a, b) => a + b, 0)])],
+  words: () => {
+    const rows = [["Person", "Rank", "Word", "Count"]];
+    const add = (label, map, n) => [...map].sort((a, b) => b[1] - a[1]).slice(0, n).forEach(([w, c], i) => rows.push([label, i + 1, w, c]));
+    add("Everyone", A.words.get(""), 50);
+    A.people.forEach(p => add(p.name, A.words.get(p.name) || new Map(), 25));
+    return rows;
+  },
+  emoji: () => [["Rank", "Emoji", "Count"], ...[...A.emoji].sort((a, b) => b[1] - a[1]).map(([e, c], i) => [i + 1, e, c])],
+  messages: () => [["Date", "Time", "Author", "Type", "Message"], ...A.messages.map(m => [dayKey(m.t), isoTime(m.t), m.author, m.kind, m.text])],
+};
+const CSV_NAMES = { summary: "summary", participants: "participants", daily: "daily-activity", heatmap: "day-hour-heatmap", words: "top-words", emoji: "top-emoji", messages: "messages" };
+
+function download(name, blob) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+const csvBlob = rows => new Blob([toCsv(rows)], { type: "text/csv;charset=utf-8" });
+
+async function exportCsvZip() {
+  if (!window.JSZip) throw new Error("the zip library didn't load. Download the CSVs one at a time instead.");
+  const zip = new JSZip();
+  for (const k of Object.keys(TABLES)) zip.file(`${A.slug}-${CSV_NAMES[k]}.csv`, toCsv(TABLES[k]()));
+  download(`${A.slug}-tables.zip`, await zip.generateAsync({ type: "blob" }));
+}
+
+/* ---------- Export: PDF ---------- */
+
+const loaded = {};
+function loadScript(src) {
+  return loaded[src] || (loaded[src] = new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = src; s.onload = res;
+    s.onerror = () => { delete loaded[src]; rej(new Error("the PDF tools couldn't be downloaded. Check your internet connection and try again.")); };
+    document.head.appendChild(s);
+  }));
+}
+
+// Copy computed SVG styles onto the elements; the PDF renderer ignores stylesheet rules inside SVG.
+function inlineSvgStyles(svg) {
+  if (!svg) return;
+  for (const el of svg.querySelectorAll("*")) {
+    const cs = getComputedStyle(el);
+    el.setAttribute("style", `fill:${cs.fill};fill-opacity:${cs.fillOpacity};stroke:${cs.stroke};stroke-width:${cs.strokeWidth};stroke-dasharray:${cs.strokeDasharray};font-family:${cs.fontFamily.replace(/"/g, "'")};font-size:${cs.fontSize}`);
+  }
+}
+
+const hexRgb = h => { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+
+async function exportPdf() {
+  await Promise.all([
+    loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"),
+    loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"),
+  ]);
+  const root = document.documentElement, prevTheme = root.getAttribute("data-theme");
+  const s = summaryStats();
+  root.setAttribute("data-theme", "light");          // reports always print in the light theme
+  document.body.classList.add("exporting");
+  $("#reportChat").textContent = A.title;
+  $("#reportMeta").textContent = `${fmt(s.total)} messages · ${fmtDate(s.first)} – ${fmtDate(s.last)} · generated ${fmtDate(new Date())}`;
+  $("#reportHead").hidden = false;
+  try {
+    renderActivity(); renderHeat();
+    inlineSvgStyles($("#activity svg"));
+    if (document.fonts) await document.fonts.ready;
+    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: "mm", format: "a4", compress: true });
+    const PW = 210, PH = 297, M = 12, GAP = 5, BOTTOM = PH - M - 6;
+    const bg = token("--bg"), [br, bgc, bb] = hexRgb(bg);
+    const paint = () => { pdf.setFillColor(br, bgc, bb); pdf.rect(0, 0, PW, PH, "F"); };
+    paint();
+    const wrapW = $("#results").offsetWidth;
+    const k = (PW - 2 * M) / wrapW;
+    const blocks = [$("#reportHead"), $("#stats"), ...document.querySelectorAll("#results .panel")];
+    let y = M, pending = null;
+
+    for (const el of blocks) {
+      const canvas = await html2canvas(el, { scale: 2, backgroundColor: bg, logging: false });
+      let w = el.offsetWidth * k, h = el.offsetHeight * k;
+      const maxH = BOTTOM - M;
+      if (h > maxH) { w *= maxH / h; h = maxH; }
+      const half = el.offsetWidth < wrapW * 0.6;
+      let x = M, top;
+
+      if (half && pending) {                        // second panel of a side-by-side pair
+        x = M + pending.w + GAP;
+        top = pending.top;
+        if (top + h > BOTTOM) { pdf.addPage(); paint(); top = M; x = M; }
+        y = Math.max(top + h, pending.top + pending.h) + GAP;
+        pending = null;
+      } else {
+        if (pending) { y = pending.top + pending.h + GAP; pending = null; }
+        if (y + h > BOTTOM) { pdf.addPage(); paint(); y = M; }
+        top = y;
+        if (half) pending = { w, h, top }; else y = top + h + GAP;
+      }
+      pdf.addImage(canvas.toDataURL("image/jpeg", 0.92), "JPEG", x, top, w, h);
+    }
+
+    const n = pdf.getNumberOfPages();
+    for (let i = 1; i <= n; i++) {
+      pdf.setPage(i);
+      pdf.setFontSize(8); pdf.setTextColor(90, 101, 118);
+      pdf.text("WhatsApp Chat Analyser", M, PH - 7);
+      pdf.text(`Page ${i} of ${n}`, PW - M, PH - 7, { align: "right" });
+    }
+    pdf.save(`${A.slug}-report.pdf`);
+  } finally {
+    if (prevTheme === null) root.removeAttribute("data-theme"); else root.setAttribute("data-theme", prevTheme);
+    document.body.classList.remove("exporting");
+    $("#reportHead").hidden = true;
+    renderActivity(); renderHeat();
+  }
+}
+
+/* ---------- Export menu ---------- */
+
+const exportMenu = $("#export");
+exportMenu.querySelector(".menu").addEventListener("click", async e => {
+  const b = e.target.closest("button[data-x]");
+  if (!b || !A) return;
+  const kind = b.dataset.x;
+  exportMenu.open = false;
+  exportMenu.classList.add("busy");
+  $("#exportLabel").textContent = kind === "pdf" ? "Preparing PDF…" : "Preparing…";
+  showError("");
+  try {
+    if (kind === "pdf") await exportPdf();
+    else if (kind === "zip") await exportCsvZip();
+    else download(`${A.slug}-${CSV_NAMES[kind]}.csv`, csvBlob(TABLES[kind]()));
+  } catch (err) {
+    showError(`Export didn't finish: ${err.message || err}`);
+  } finally {
+    exportMenu.classList.remove("busy");
+    $("#exportLabel").textContent = "Export";
+  }
+});
+document.addEventListener("click", e => { if (!exportMenu.contains(e.target)) exportMenu.open = false; });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && exportMenu.open) { exportMenu.open = false; $("#exportBtn").focus(); } });
+</script>
