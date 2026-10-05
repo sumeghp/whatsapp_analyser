@@ -528,9 +528,9 @@ function analyse(messages) {
   const heat = Array.from({ length: 7 }, () => new Array(24).fill(0));
   let prev = null;
 
-  // Collect all author names and tokens to eliminate usernames from word ranking
   const nameTokens = new Set();
   for (const m of messages) {
+    if (!m.author) continue;
     for (const token of m.author.toLowerCase().split(/[^\p{L}\p{N}'’]+/u)) {
       if ([...token].length >= 3) nameTokens.add(token);
     }
@@ -617,7 +617,14 @@ function render(data, fileName) {
   $("#toolbar").hidden = false;
   $("#start").hidden = true;
   $("#results").hidden = false;
-  renderStats(); renderPeople(); renderActivity(); renderHeat(); renderWordSelect(); renderWords(); renderEmoji(); renderNetworkViz();
+  renderStats();
+  renderPeople();
+  renderActivity();
+  renderHeat();
+  renderWordSelect();
+  renderWords();
+  renderEmoji();
+  renderNetworkViz();
   trackEvent("chat-analyzed", "Chat Analyzed");
 }
 
@@ -683,7 +690,7 @@ function niceStep(raw) {
 function renderActivity() {
   const el = $("#activity");
   const pts = bucketed();
-  const W = Math.max(280, el.clientWidth), H = W < 520 ? 190 : 240;
+  const W = Math.max(280, el.clientWidth || 600), H = W < 520 ? 190 : 240;
   const pad = { l: 38, r: 14, t: 22, b: 26 };
   const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
   const max = Math.max(1, ...pts.map(p => p.v));
@@ -811,6 +818,7 @@ function renderEmoji() {
 
 function renderNetworkViz() {
   const container = $("#networkGraph");
+  if (!A || !A.network) return;
   const { edgeList } = A.network;
   const participants = A.people.slice(0, 12);
   const pNames = new Set(participants.map(p => p.name));
@@ -948,7 +956,7 @@ new ResizeObserver(() => {
       renderNetworkViz();
     }
   }, 80);
-}).observe($("#activity"));
+}).observe($("#results"));
 
 /* ---------- Export: CSV ---------- */
 
