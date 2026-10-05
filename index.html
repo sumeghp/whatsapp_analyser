@@ -217,9 +217,7 @@ select { font: inherit; font-size: 0.85rem; padding: 5px 8px; border-radius: 8px
         <input type="file" id="file" accept=".txt,.zip,text/plain,application/zip">
       </label>
       <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
-        <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <!-- Populated by JS -->
-        </svg>
+        <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
         <span id="themeLabel">Theme</span>
       </button>
     </div>
@@ -467,7 +465,7 @@ function parseChat(raw) {
 
 /* ---------- Analysis ---------- */
 
-const STOP = new Set(("the and for you that this with have are was but not what all can will just get got its it's i'm i'll i've don't can't didn't doesn't isn't won't "
+const BASE_STOP = new Set(("the and for you that this with have are was but not what all can will just get got its it's i'm i'll i've don't can't didn't doesn't isn't won't "
   + "yes yeah yea yup okay okk haha hahaha hahahaha lol lmao also too then there they them their from your you're our out now how why who when where one let see "
   + "did does had has him her she his any some more very much well like come coming going gone know think want need make take would could should about into "
   + "only than been being were which because really still here hmm hmmm sure even back over thing things time today tomorrow tonight good nice cool right "
@@ -530,6 +528,14 @@ function analyse(messages) {
   const heat = Array.from({ length: 7 }, () => new Array(24).fill(0));
   let prev = null;
 
+  // Collect all author names and tokens to eliminate usernames from word ranking
+  const nameTokens = new Set();
+  for (const m of messages) {
+    for (const token of m.author.toLowerCase().split(/[^\p{L}\p{N}'’]+/u)) {
+      if ([...token].length >= 3) nameTokens.add(token);
+    }
+  }
+
   const P = name => {
     if (!people.has(name)) people.set(name, { name, msgs: 0, words: 0, media: 0, deleted: 0, starts: 0 });
     return people.get(name);
@@ -554,7 +560,7 @@ function analyse(messages) {
     if (!words.has(m.author)) words.set(m.author, new Map());
     for (let w of text.toLowerCase().split(/[^\p{L}\p{N}'’]+/u)) {
       w = w.replace(/^['’]+|['’]+$/g, "").replace(/’/g, "'");
-      if ([...w].length < 3 || /^\d+$/.test(w) || STOP.has(w)) continue;
+      if ([...w].length < 3 || /^\d+$/.test(w) || BASE_STOP.has(w) || nameTokens.has(w)) continue;
       bump(words.get(m.author), w);
     }
   }
