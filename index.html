@@ -51,7 +51,7 @@ p { margin: 0; }
 /* Header */
 .top { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-end; justify-content: space-between; }
 .intro { display: grid; gap: 8px; max-width: 34rem; min-width: 0; }
-.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .drop { position: relative; display: flex; align-items: center; gap: 12px; padding: 10px 16px; border: 1.5px dashed var(--line); border-radius: var(--r); background: var(--surface); cursor: pointer; transition: border-color .15s; }
 .drop:hover, .drop.over { border-color: var(--accent); }
 .drop:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -63,6 +63,11 @@ button { font: inherit; cursor: pointer; }
 .btn { padding: 10px 16px; border-radius: var(--r); border: 1px solid var(--line); background: transparent; color: var(--ink); font-weight: 500; }
 .btn:hover { border-color: var(--accent); color: var(--accent); }
 button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Theme switch button */
+.theme-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 14px; border-radius: var(--r); border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 0.85rem; font-weight: 500; transition: border-color .15s, background-color .15s; }
+.theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+.theme-toggle svg { width: 18px; height: 18px; }
 
 .source { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; font-size: 0.9rem; }
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); font-family: var(--f-mono); font-size: 0.75rem; }
@@ -211,6 +216,12 @@ select { font: inherit; font-size: 0.85rem; padding: 5px 8px; border-radius: 8px
         <span><strong>Choose an export</strong><span class="small">.txt or .zip · or drop it here</span></span>
         <input type="file" id="file" accept=".txt,.zip,text/plain,application/zip">
       </label>
+      <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle theme">
+        <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <!-- Populated by JS -->
+        </svg>
+        <span id="themeLabel">Theme</span>
+      </button>
     </div>
   </header>
 
@@ -307,7 +318,6 @@ select { font: inherit; font-size: 0.85rem; padding: 5px 8px; border-radius: 8px
         <div class="emoji-grid" id="emoji"></div>
       </section>
 
-      <!-- Network Visualization Panel at the Bottom -->
       <section class="panel span2">
         <div class="panel-head">
           <h2>Conversational Network</h2>
@@ -328,6 +338,79 @@ select { font: inherit; font-size: 0.85rem; padding: 5px 8px; border-radius: 8px
 
 <script>
 "use strict";
+
+/* ---------- Theme Handling ---------- */
+
+const rootEl = document.documentElement;
+const themeToggleBtn = document.querySelector("#themeToggle");
+const themeIcon = document.querySelector("#themeIcon");
+const themeLabel = document.querySelector("#themeLabel");
+
+const ICONS = {
+  sun: `<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>`,
+  moon: `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>`
+};
+
+function getActiveTheme() {
+  const currentAttr = rootEl.getAttribute("data-theme");
+  if (currentAttr) return currentAttr;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function updateThemeUI(theme) {
+  if (theme === "dark") {
+    themeIcon.innerHTML = ICONS.sun;
+    themeLabel.textContent = "Light";
+  } else {
+    themeIcon.innerHTML = ICONS.moon;
+    themeLabel.textContent = "Dark";
+  }
+}
+
+function applyTheme(theme, save = true) {
+  rootEl.setAttribute("data-theme", theme);
+  if (save) localStorage.setItem("wa_theme", theme);
+  updateThemeUI(theme);
+  if (A) {
+    renderHeat();
+    renderNetworkViz();
+  }
+}
+
+const savedTheme = localStorage.getItem("wa_theme");
+if (savedTheme === "dark" || savedTheme === "light") {
+  applyTheme(savedTheme, false);
+} else {
+  updateThemeUI(getActiveTheme());
+}
+
+themeToggleBtn.addEventListener("click", () => {
+  const newTheme = getActiveTheme() === "dark" ? "light" : "dark";
+  applyTheme(newTheme, true);
+  trackEvent(`theme-switched-${newTheme}`, `Theme: ${newTheme}`);
+});
+
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", e => {
+  if (!localStorage.getItem("wa_theme")) {
+    updateThemeUI(e.matches ? "dark" : "light");
+    if (A) {
+      renderHeat();
+      renderNetworkViz();
+    }
+  }
+});
+
+/* ---------- Analytics Helper ---------- */
+
+function trackEvent(name, title) {
+  if (window.goatcounter && typeof window.goatcounter.count === "function") {
+    window.goatcounter.count({
+      path: name,
+      title: title || name,
+      event: true
+    });
+  }
+}
 
 /* ---------- Parsing ---------- */
 
@@ -529,6 +612,7 @@ function render(data, fileName) {
   $("#start").hidden = true;
   $("#results").hidden = false;
   renderStats(); renderPeople(); renderActivity(); renderHeat(); renderWordSelect(); renderWords(); renderEmoji(); renderNetworkViz();
+  trackEvent("chat-analyzed", "Chat Analyzed");
 }
 
 function renderStats() {
@@ -717,7 +801,7 @@ function renderEmoji() {
     : `<p class="empty">No emoji in this chat.</p>`;
 }
 
-/* ---------- Network Visualization (Bottom Panel with Numbers) ---------- */
+/* ---------- Network Visualization (Bottom Panel) ---------- */
 
 function renderNetworkViz() {
   const container = $("#networkGraph");
@@ -740,7 +824,7 @@ function renderNetworkViz() {
   const maxMsgs = Math.max(1, ...participants.map(p => p.msgs));
   participants.forEach((p, i) => {
     const angle = (2 * Math.PI * i) / participants.length - Math.PI / 2;
-    const rNode = 14 + (p.msgs / maxMsgs) * 16; // scaled to fit readable count text inside
+    const rNode = 14 + (p.msgs / maxMsgs) * 16;
     nodePos[p.name] = {
       x: cx + radius * Math.cos(angle),
       y: cy + radius * Math.sin(angle),
@@ -761,7 +845,6 @@ function renderNetworkViz() {
   });
   defs += `</defs>`;
 
-  // Draw edges and edge numeric pills
   let edgeSvg = "";
   let edgeLabelsSvg = "";
   edges.forEach(e => {
@@ -782,8 +865,6 @@ function renderNetworkViz() {
       <title>${esc(e.source)} → ${esc(e.target)}: ${fmt(e.count)} replies</title>
     </path>`;
 
-    // Compute midpoint of quadratic bezier curve for the number pill
-    // B(t) at t = 0.5: 0.25*s + 0.5*q + 0.25*t
     const midX = 0.25 * s.x + 0.5 * qx + 0.25 * t.x;
     const midY = 0.25 * s.y + 0.5 * qy + 0.25 * t.y;
     const labelVal = shortNum(e.count);
@@ -796,7 +877,6 @@ function renderNetworkViz() {
     </g>`;
   });
 
-  // Draw nodes and participant labels
   let nodeSvg = "";
   participants.forEach(p => {
     const n = nodePos[p.name];
@@ -863,9 +943,6 @@ new ResizeObserver(() => {
     }
   }, 80);
 }).observe($("#activity"));
-
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => A && (renderHeat(), renderNetworkViz()));
-new MutationObserver(() => A && (renderHeat(), renderNetworkViz())).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
 /* ---------- Export: CSV ---------- */
 
@@ -1001,9 +1078,9 @@ async function exportPdf() {
     loadScript("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"),
     loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"),
   ]);
-  const root = document.documentElement, prevTheme = root.getAttribute("data-theme");
+  const currentAttr = rootEl.getAttribute("data-theme");
   const s = summaryStats();
-  root.setAttribute("data-theme", "light");
+  rootEl.setAttribute("data-theme", "light");
   document.body.classList.add("exporting");
   $("#reportChat").textContent = A.title;
   $("#reportMeta").textContent = `${fmt(s.total)} messages · ${fmtDate(s.first)} – ${fmtDate(s.last)} · generated ${fmtDate(new Date())}`;
@@ -1058,7 +1135,7 @@ async function exportPdf() {
     }
     pdf.save(`${A.slug}-report.pdf`);
   } finally {
-    if (prevTheme === null) root.removeAttribute("data-theme"); else root.setAttribute("data-theme", prevTheme);
+    if (currentAttr === null) rootEl.removeAttribute("data-theme"); else rootEl.setAttribute("data-theme", currentAttr);
     document.body.classList.remove("exporting");
     $("#reportHead").hidden = true;
     renderActivity(); renderHeat(); renderNetworkViz();
@@ -1072,6 +1149,7 @@ exportMenu.querySelector(".menu").addEventListener("click", async e => {
   const b = e.target.closest("button[data-x]");
   if (!b || !A) return;
   const kind = b.dataset.x;
+  trackEvent(`export-${kind}`, `Export ${kind}`);
   exportMenu.open = false;
   exportMenu.classList.add("busy");
   $("#exportLabel").textContent = kind === "pdf" ? "Preparing PDF…" : "Preparing…";
@@ -1090,5 +1168,9 @@ exportMenu.querySelector(".menu").addEventListener("click", async e => {
 document.addEventListener("click", e => { if (!exportMenu.contains(e.target)) exportMenu.open = false; });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && exportMenu.open) { exportMenu.open = false; $("#exportBtn").focus(); } });
 </script>
+
+<!-- GoatCounter Analytics Script -->
+<script data-goatcounter="https://sumegh.goatcounter.com/count"
+        async src="//gc.zgo.at/count.js"></script>
 </body>
 </html>
