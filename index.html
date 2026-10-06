@@ -199,9 +199,9 @@ select { font: inherit; font-size: 0.85rem; padding: 5px 8px; border-radius: 8px
 /* Network Graph Panel */
 .net-wrap { position: relative; width: 100%; border-radius: 8px; background: var(--surface); overflow: hidden; }
 .net-wrap svg { display: block; width: 100%; height: auto; }
-.net-edge { fill: none; opacity: 0.38; transition: opacity .2s, stroke-width .2s; }
+.net-edge { fill: none; opacity: 0.45; transition: opacity .2s, stroke-width .2s; }
 .net-edge:hover { opacity: 0.95; stroke-width: 3.5px !important; }
-.net-edge-label-bg { fill: var(--surface); fill-opacity: 0.88; stroke: var(--line); stroke-width: 0.5px; rx: 3px; }
+.net-edge-label-bg { fill: var(--surface); fill-opacity: 0.92; stroke: var(--line); stroke-width: 0.5px; rx: 3px; }
 .net-edge-label { font-family: var(--f-mono); font-size: 8.5px; fill: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none; font-weight: 500; }
 .net-node circle { stroke: var(--surface); stroke-width: 2; transition: r .2s, filter .2s; cursor: pointer; }
 .net-node:hover circle { filter: drop-shadow(0 2px 8px rgba(0,0,0,0.25)); }
@@ -834,7 +834,7 @@ function renderEmoji() {
     : `<p class="empty">No emoji in this chat.</p>`;
 }
 
-/* ---------- Network Visualization (Bottom Panel) ---------- */
+/* ---------- Network Visualization (Two Independent Directional Curves) ---------- */
 
 function renderNetworkViz() {
   const container = $("#networkGraph");
@@ -873,34 +873,58 @@ function renderNetworkViz() {
 
   let defs = `<defs>`;
   participants.forEach((p, i) => {
-    defs += `<marker id="arrow-${i}" viewBox="0 0 10 10" refX="16" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-      <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="${color(i)}" opacity="0.85"/>
+    defs += `<marker id="arrow-${i}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+      <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="${color(i)}" opacity="0.95"/>
     </marker>`;
   });
   defs += `</defs>`;
 
   let edgeSvg = "";
   let edgeLabelsSvg = "";
+
   edges.forEach(e => {
     const s = nodePos[e.source];
     const t = nodePos[e.target];
     if (!s || !t) return;
 
     const sIdx = participants.findIndex(p => p.name === e.source);
-    const strokeW = Math.max(1.2, (e.count / maxWeight) * 5);
+    const strokeW = Math.max(1.2, (e.count / maxWeight) * 4.5);
 
+    const dx = t.x - s.x;
+    const dy = t.y - s.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 1) return;
+
+    // Unit vector along s -> t and right-hand perpendicular normal
+    const ux = dx / dist;
+    const uy = dy / dist;
+    const nx = -uy;
+    const ny = ux;
+
+    // Base curvature offset to the right side of the directional path
+    const offset = Math.min(65, Math.max(22, dist * 0.16));
+
+    // Midpoint control point for quadratic bezier
     const mx = (s.x + t.x) / 2;
     const my = (s.y + t.y) / 2;
-    const qx = mx + (cx - mx) * 0.38;
-    const qy = my + (cy - my) * 0.38;
-    const d = `M ${s.x.toFixed(1)} ${s.y.toFixed(1)} Q ${qx.toFixed(1)} ${qy.toFixed(1)} ${t.x.toFixed(1)} ${t.y.toFixed(1)}`;
+    const qx = mx + nx * offset;
+    const qy = my + ny * offset;
+
+    // Start and end anchor offsets to prevent arrows from hiding behind circles
+    const startX = s.x + ux * (s.r + 2) + nx * 4;
+    const startY = s.y + uy * (s.r + 2) + ny * 4;
+    const endX = t.x - ux * (t.r + 8) + nx * 4;
+    const endY = t.y - uy * (t.r + 8) + ny * 4;
+
+    const d = `M ${startX.toFixed(1)} ${startY.toFixed(1)} Q ${qx.toFixed(1)} ${qy.toFixed(1)} ${endX.toFixed(1)} ${endY.toFixed(1)}`;
 
     edgeSvg += `<path class="net-edge" d="${d}" stroke="${s.color}" stroke-width="${strokeW.toFixed(1)}" marker-end="url(#arrow-${sIdx})">
       <title>${esc(e.source)} → ${esc(e.target)}: ${fmt(e.count)} replies</title>
     </path>`;
 
-    const midX = 0.25 * s.x + 0.5 * qx + 0.25 * t.x;
-    const midY = 0.25 * s.y + 0.5 * qy + 0.25 * t.y;
+    // Position label near the peak of this directional arc
+    const midX = 0.25 * startX + 0.5 * qx + 0.25 * endX;
+    const midY = 0.25 * startY + 0.5 * qy + 0.25 * endY;
     const labelVal = shortNum(e.count);
     const pillW = Math.max(16, labelVal.length * 6.5 + 6);
     const pillH = 13;
@@ -989,7 +1013,7 @@ function csvCell(v) {
   if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
-const toCsv = rows => "﻿﻿" + rows.map(r => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
+const toCsv = rows => "﻿﻿﻿﻿" + rows.map(r => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
 
 function summaryStats() {
   const { messages, series, people, heat } = A;
